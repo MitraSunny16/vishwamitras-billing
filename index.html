@@ -96,17 +96,34 @@
       <input type="hidden" id="prodId">
       <input type="text" id="prodName" placeholder="Product Name">
       <div class="form-row">
+        <select id="prodCategory">
+          <option value="">-- Category --</option>
+          <option value="Toys">Toys</option>
+          <option value="Gifts">Gifts</option>
+          <option value="Stationery">Stationery</option>
+          <option value="Crafting">Crafting</option>
+          <option value="General">General</option>
+        </select>
+        <input type="number" id="prodStock" placeholder="Stock Quantity">
+      </div>
+      <div class="form-row">
         <input type="number" id="prodCost" placeholder="Cost Price (₹)">
         <input type="number" id="prodPrice" placeholder="Selling Price (₹)">
       </div>
-      <input type="number" id="prodStock" placeholder="Stock Quantity">
       <button class="btn green" onclick="saveProduct()" id="saveProdBtn">Add Product</button>
       <button class="btn ghost" onclick="clearProductForm()" style="display:none" id="cancelProdBtn">Cancel Edit</button>
     </div>
     <div class="card">
+      <h2>Import Products from Excel/CSV</h2>
+      <p class="muted" style="margin-bottom:10px">CSV format: category, name, cost_price, selling_price, stock</p>
+      <input type="file" id="csvFile" accept=".csv,.txt" onchange="importCSV(event)">
+      <p class="muted" id="importMsg" style="margin-top:8px"></p>
+    </div>
+    <div class="card">
       <h2>All Products</h2>
+      <input type="text" id="filterCategory" placeholder="Filter by category (e.g. Stationery, Gifts)" oninput="renderProducts()" style="margin-bottom:10px">
       <div style="overflow-x:auto"><table>
-        <thead><tr><th>Name</th><th>Cost</th><th>Price</th><th>Stock</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Category</th><th>Cost</th><th>Price</th><th>Stock</th><th></th></tr></thead>
         <tbody id="productsBody"></tbody>
       </table></div>
     </div>
@@ -257,10 +274,14 @@ async function loadBills() {
 
 function renderProducts() {
   const body = document.getElementById('productsBody');
-  if (!products.length) { body.innerHTML = '<tr><td colspan="5" class="muted">No products. Add your first product!</td></tr>'; return; }
-  body.innerHTML = products.map(p => `
+  const filter = (document.getElementById('filterCategory').value || '').toLowerCase();
+  let list = products;
+  if (filter) list = products.filter(p => (p.category || '').toLowerCase().includes(filter) || p.name.toLowerCase().includes(filter));
+  if (!list.length) { body.innerHTML = '<tr><td colspan="6" class="muted">No products. Add your first product!</td></tr>'; return; }
+  body.innerHTML = list.map(p => `
     <tr>
       <td>${p.name}</td>
+      <td><span class="badge">${p.category || 'General'}</span></td>
       <td>₹${p.cost_price}</td>
       <td>₹${p.selling_price}</td>
       <td class="${p.stock <= 5 ? 'lowstock' : ''}">${p.stock}${p.stock <= 5 ? ' ⚠️' : ''}</td>
@@ -268,23 +289,50 @@ function renderProducts() {
     </tr>`).join('');
 }
 
+function importCSV(event) {
+  const file = event.target.files[0];
+  const msg = document.getElementById('importMsg');
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async function () {
+    const lines = reader.result.split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (lines.length < 2) { msg.textContent = 'File is empty.'; return; }
+    let ok = 0, fail = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+      if (cols.length < 2 || !cols[1]) { fail++; continue; }
+      const category = cols[0] || 'General';
+      const name = cols[1];
+      const cost = parseFloat(cols[2]) || 0;
+      const price = parseFloat(cols[3]) || 0;
+      const stock = parseFloat(cols[4]) || 0;
+      const r = await api('POST', '/rest/v1/products', { category, name, cost_price: cost, selling_price: price, stock });
+      if (r.error) fail++; else ok++;
+    }
+    msg.textContent = 'Import done: ' + ok + ' added, ' + fail + ' failed.';
+    loadProducts();
+  };
+  reader.readAsText(file);
+}
+
 function refreshProductSelect() {
   const sel = document.getElementById('billProduct');
-  sel.innerHTML = '<option value="">-- Select Product --</option>' + products.map(p => `<option value="${p.id}">${p.name} (₹${p.selling_price}, stock ${p.stock})</option>`).join('');
+  sel.innerHTML = '<option value="">-- Select Product --</option>' + products.map(p => `<option value="${p.id}">[${p.category || 'General'}] ${p.name} (₹${p.selling_price}, stock ${p.stock})</option>`).join('');
 }
 
 async function saveProduct() {
   const id = document.getElementById('prodId').value;
   const name = document.getElementById('prodName').value.trim();
+  const category = document.getElementById('prodCategory').value || 'General';
   const cost = parseFloat(document.getElementById('prodCost').value) || 0;
   const price = parseFloat(document.getElementById('prodPrice').value) || 0;
   const stock = parseFloat(document.getElementById('prodStock').value) || 0;
   if (!name) { alert('Product name required.'); return; }
   let r;
   if (id) {
-    r = await api('PATCH', '/rest/v1/products?id=eq.' + id, { name, cost_price: cost, selling_price: price, stock });
+    r = await api('PATCH', '/rest/v1/products?id=eq.' + id, { name, category, cost_price: cost, selling_price: price, stock });
   } else {
-    r = await api('POST', '/rest/v1/products', { name, cost_price: cost, selling_price: price, stock });
+    r = await api('POST', '/rest/v1/products', { name, category, cost_price: cost, selling_price: price, stock });
   }
   if (r.error) { alert('Error: ' + r.error); return; }
   clearProductForm();
@@ -295,6 +343,7 @@ function editProduct(id) {
   const p = products.find(x => x.id === id); if (!p) return;
   document.getElementById('prodId').value = p.id;
   document.getElementById('prodName').value = p.name;
+  document.getElementById('prodCategory').value = p.category || 'General';
   document.getElementById('prodCost').value = p.cost_price;
   document.getElementById('prodPrice').value = p.selling_price;
   document.getElementById('prodStock').value = p.stock;
@@ -306,6 +355,7 @@ function editProduct(id) {
 function clearProductForm() {
   document.getElementById('prodId').value = '';
   ['prodName','prodCost','prodPrice','prodStock'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('prodCategory').value = '';
   document.getElementById('saveProdBtn').textContent = 'Add Product';
   document.getElementById('cancelProdBtn').style.display = 'none';
 }
