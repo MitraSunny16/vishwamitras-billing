@@ -47,7 +47,7 @@
   .muted { color:#888; font-size:.85rem; }
   .print-row { text-align:right; margin-top:8px; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 </head>
 <body>
 
@@ -149,8 +149,7 @@
 <script>
 const SUPABASE_URL = 'https://bjcixocwzwkpddklsahh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqY2l4b2N3endrcGRka2xzYWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDIyNTksImV4cCI6MjEwMjE3ODI1OX0.nX48b5cmNSS3vOjTMBMAvFcggOaGzVDjhli050LLfAA';
-
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const TOKEN_KEY = 'vg_token';
 
 let cart = [];
 let products = [];
@@ -158,25 +157,48 @@ let bills = [];
 let authMode = 'login';
 
 function showAuthMsg(text, ok) {
-  document.getElementById('authMsg').className = ok ? 'msg ok' : 'msg err';
-  document.getElementById('authMsg').innerHTML = text;
+  const el = document.getElementById('authMsg');
+  el.className = ok ? 'msg ok' : 'msg err';
+  el.innerHTML = text;
+}
+
+async function api(method, path, body) {
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Content-Type': 'application/json'
+  };
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(SUPABASE_URL + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) {}
+  return { status: res.status, data, error: !res.ok ? ((data && (data.message || data.error_description)) || text) : null };
 }
 
 async function doLogin() {
   const email = document.getElementById('loginEmail').value.trim();
   const pass = document.getElementById('loginPass').value;
   if (!email || !pass) { showAuthMsg('Please enter email and password.', false); return; }
+  showAuthMsg('Logging in...', true);
   if (authMode === 'login') {
-    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    if (error) { showAuthMsg(error.message, false); return; }
+    const r = await api('POST', '/auth/v1/token?grant_type=password', { email, password: pass });
+    if (r.error) { showAuthMsg('Login failed: ' + r.error, false); return; }
+    localStorage.setItem(TOKEN_KEY, r.data.access_token);
+    enterApp();
   } else {
-    const { error } = await supabase.auth.signUp({ email, password: pass });
-    if (error) { showAuthMsg(error.message, false); return; }
-    showAuthMsg('Account created! You can login now.', true);
+    const r = await api('POST', '/auth/v1/signup', { email, password: pass });
+    if (r.error) { showAuthMsg('Signup failed: ' + r.error, false); return; }
+    showAuthMsg('Account created! Please check email to confirm, then login.', true);
     authMode = 'login';
     document.getElementById('authLink').textContent = 'Create new account';
-    return;
   }
+}
+
+async function doLogout() {
+  try { await api('POST', '/auth/v1/logout', {}); } catch (e) {}
+  localStorage.removeItem(TOKEN_KEY);
+  leaveApp();
 }
 
 function toggleAuthMode(e) {
@@ -185,16 +207,20 @@ function toggleAuthMode(e) {
   document.getElementById('authLink').textContent = authMode === 'login' ? 'Create new account' : 'Have an account? Login';
 }
 
-supabase.auth.onAuthStateChange((event, session) => {
-  if (session) { enterApp(); } else { leaveApp(); }
-});
+async function checkSession() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) { leaveApp(); return; }
+  const r = await api('GET', '/auth/v1/user');
+  if (r.error || !r.data) { localStorage.removeItem(TOKEN_KEY); leaveApp(); return; }
+  enterApp();
+}
 
 function enterApp() {
   document.getElementById('auth').style.display = 'none';
   document.getElementById('appHeader').style.display = 'flex';
   document.getElementById('appNav').style.display = 'flex';
   document.getElementById('appMain').style.display = 'block';
-  document.getElementById('userInfo').textContent = '👤 ' + (supabase.auth.getUser() ? 'Owner' : '');
+  document.getElementById('userInfo').innerHTML = '👤 Owner · <a href="#" onclick="doLogout()" style="color:#fff">Logout</a>';
   loadAll();
 }
 
@@ -216,16 +242,16 @@ function showTab(tab) {
 async function loadAll() { await Promise.all([loadProducts(), loadBills()]); renderDashboard(); }
 
 async function loadProducts() {
-  const { data, error } = await supabase.from('products').select('*').order('name');
-  if (error) { console.error(error); return; }
-  products = data || [];
+  const r = await api('GET', '/rest/v1/products?select=*&order=name.asc');
+  if (r.error) { console.error(r.error); return; }
+  products = r.data || [];
   renderProducts();
 }
 
 async function loadBills() {
-  const { data, error } = await supabase.from('bills').select('*').order('created_at', { ascending: false });
-  if (error) { console.error(error); return; }
-  bills = data || [];
+  const r = await api('GET', '/rest/v1/bills?select=*&order=created_at.desc');
+  if (r.error) { console.error(r.error); return; }
+  bills = r.data || [];
   renderBills();
 }
 
@@ -247,18 +273,22 @@ function refreshProductSelect() {
   sel.innerHTML = '<option value="">-- Select Product --</option>' + products.map(p => `<option value="${p.id}">${p.name} (₹${p.selling_price}, stock ${p.stock})</option>`).join('');
 }
 
-function saveProduct() {
+async function saveProduct() {
   const id = document.getElementById('prodId').value;
   const name = document.getElementById('prodName').value.trim();
   const cost = parseFloat(document.getElementById('prodCost').value) || 0;
   const price = parseFloat(document.getElementById('prodPrice').value) || 0;
   const stock = parseFloat(document.getElementById('prodStock').value) || 0;
   if (!name) { alert('Product name required.'); return; }
+  let r;
   if (id) {
-    supabase.from('products').update({ name, cost_price: cost, selling_price: price, stock }).eq('id', id).then(() => { clearProductForm(); loadProducts(); });
+    r = await api('PATCH', '/rest/v1/products?id=eq.' + id, { name, cost_price: cost, selling_price: price, stock });
   } else {
-    supabase.from('products').insert({ name, cost_price: cost, selling_price: price, stock }).then(() => { clearProductForm(); loadProducts(); });
+    r = await api('POST', '/rest/v1/products', { name, cost_price: cost, selling_price: price, stock });
   }
+  if (r.error) { alert('Error: ' + r.error); return; }
+  clearProductForm();
+  loadProducts();
 }
 
 function editProduct(id) {
@@ -282,7 +312,8 @@ function clearProductForm() {
 
 async function deleteProduct(id) {
   if (!confirm('Delete this product?')) return;
-  await supabase.from('products').delete().eq('id', id);
+  const r = await api('DELETE', '/rest/v1/products?id=eq.' + id);
+  if (r.error) { alert('Error: ' + r.error); return; }
   loadProducts();
 }
 
@@ -315,15 +346,16 @@ async function saveBill() {
   const total = cart.reduce((s, c) => s + c.price * c.qty, 0);
   const cust = document.getElementById('billCustomer').value.trim() || 'Walk-in Customer';
 
-  const { data: bill, error } = await supabase.from('bills').insert({ customer_name: cust, total }).select().single();
-  if (error) { alert('Error saving bill: ' + error.message); return; }
+  const billRes = await api('POST', '/rest/v1/bills?select=*', { customer_name: cust, total });
+  if (billRes.error) { alert('Error saving bill: ' + billRes.error); return; }
+  const bill = billRes.data[0];
 
   const items = cart.map(c => ({ bill_id: bill.id, product_id: c.id, name: c.name, price: c.price, qty: c.qty, subtotal: c.price * c.qty }));
-  await supabase.from('bill_items').insert(items);
+  await api('POST', '/rest/v1/bill_items', items);
 
   for (const c of cart) {
     const prod = products.find(p => p.id === c.id);
-    await supabase.from('products').update({ stock: prod.stock - c.qty }).eq('id', c.id);
+    await api('PATCH', '/rest/v1/products?id=eq.' + c.id, { stock: prod.stock - c.qty });
   }
 
   cart = [];
@@ -357,6 +389,8 @@ function renderDashboard() {
   const low = products.filter(p => p.stock <= 5);
   document.getElementById('lowStockList').innerHTML = low.length ? low.map(p => `<div class="cart-item"><span>${p.name}</span><span class="lowstock">${p.stock} left ⚠️</span></div>`).join('') : '<p class="muted">No low stock items.</p>';
 }
+
+checkSession();
 </script>
 </body>
 </html>
