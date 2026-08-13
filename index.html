@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vishwamitra's Gallery - Stock & Billing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#e63946; --dark:#1d3557; --accent:#ffb703; --bg:#f1f3f5; --green:#2a9d8f; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Poppins',sans-serif; background:var(--bg); color:#333; }
+  header { background:linear-gradient(135deg,var(--dark),#457b9d); color:#fff; padding:18px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:1.2rem; font-weight:800; }
+  header .user { font-size:.85rem; opacity:.9; }
+  nav { background:#fff; display:flex; box-shadow:0 2px 8px rgba(0,0,0,.06); overflow-x:auto; }
+  nav button { flex:1; padding:14px 10px; border:none; background:none; font-family:inherit; font-weight:600; font-size:.95rem; color:#666; cursor:pointer; border-bottom:3px solid transparent; white-space:nowrap; }
+  nav button.active { color:var(--primary); border-bottom-color:var(--primary); }
+  main { max-width:960px; margin:0 auto; padding:20px 14px 90px; }
+  .card { background:#fff; border-radius:14px; padding:18px; margin-bottom:16px; box-shadow:0 2px 10px rgba(0,0,0,.05); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:16px; }
+  .stat { background:#fff; border-radius:14px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,.05); text-align:center; }
+  .stat .num { font-size:1.5rem; font-weight:800; color:var(--dark); }
+  .stat .lbl { font-size:.8rem; color:#888; }
+  h2 { font-size:1.15rem; color:var(--dark); margin-bottom:12px; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th { text-align:left; color:#888; font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; padding:8px 6px; border-bottom:2px solid #eee; }
+  td { padding:10px 6px; border-bottom:1px solid #f0f0f0; }
+  .btn { display:inline-block; background:var(--primary); color:#fff; border:none; padding:11px 18px; border-radius:10px; font-family:inherit; font-weight:600; font-size:.95rem; cursor:pointer; }
+  .btn.green { background:var(--green); }
+  .btn.ghost { background:#e9ecef; color:var(--dark); }
+  .btn.small { padding:6px 10px; font-size:.8rem; }
+  input, select { width:100%; padding:10px 12px; border:2px solid #e2e2e2; border-radius:10px; font-family:inherit; font-size:.95rem; margin-bottom:10px; }
+  input:focus, select:focus { outline:none; border-color:var(--primary); }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .badge { background:#fdecea; color:var(--primary); font-size:.7rem; font-weight:700; padding:3px 8px; border-radius:12px; }
+  .lowstock { color:var(--primary); font-weight:700; }
+  .cart-item { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #f0f0f0; }
+  .total-bar { display:flex; justify-content:space-between; align-items:center; font-size:1.2rem; font-weight:800; color:var(--dark); padding:14px 0; }
+  #auth { position:fixed; inset:0; background:linear-gradient(135deg,var(--dark),#457b9d); display:flex; align-items:center; justify-content:center; z-index:50; }
+  #auth .box { background:#fff; border-radius:16px; padding:30px; width:90%; max-width:360px; }
+  #auth h2 { text-align:center; margin-bottom:6px; }
+  #auth p { text-align:center; font-size:.85rem; color:#888; margin-bottom:16px; }
+  .msg { padding:10px; border-radius:10px; font-size:.85rem; margin-bottom:10px; display:none; }
+  .msg.err { background:#fdecea; color:#c62a37; display:block; }
+  .msg.ok { background:#e8f7f0; color:var(--green); display:block; }
+  .muted { color:#888; font-size:.85rem; }
+  .print-row { text-align:right; margin-top:8px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div id="auth">
+  <div class="box">
+    <h2>Vishwamitra's Gallery</h2>
+    <p>Stock & Billing - Owner Login</p>
+    <div id="authMsg"></div>
+    <input type="email" id="loginEmail" placeholder="Email">
+    <input type="password" id="loginPass" placeholder="Password">
+    <button class="btn" style="width:100%" onclick="doLogin()">Login</button>
+    <p style="margin-top:12px"><a href="#" onclick="toggleAuthMode(event)" id="authLink">Create new account</a></p>
+  </div>
+</div>
+
+<header id="appHeader" style="display:none">
+  <h1>🛒 Vishwamitra's Gallery</h1>
+  <span class="user" id="userInfo"></span>
+</header>
+
+<nav id="appNav" style="display:none">
+  <button onclick="showTab('dashboard')" id="tab-dashboard" class="active">Dashboard</button>
+  <button onclick="showTab('products')" id="tab-products">Products</button>
+  <button onclick="showTab('billing')" id="tab-billing">Billing</button>
+  <button onclick="showTab('sales')" id="tab-sales">Sales</button>
+</nav>
+
+<main id="appMain" style="display:none">
+
+  <div id="tab-dashboard-panel">
+    <div class="stats">
+      <div class="stat"><div class="num" id="statProducts">0</div><div class="lbl">Products</div></div>
+      <div class="stat"><div class="num" id="statStock">0</div><div class="lbl">Total Stock</div></div>
+      <div class="stat"><div class="num" id="statToday">₹0</div><div class="lbl">Today's Sales</div></div>
+      <div class="stat"><div class="num" id="statTotalSales">₹0</div><div class="lbl">Total Sales</div></div>
+    </div>
+    <div class="card">
+      <h2>Low Stock Items</h2>
+      <div id="lowStockList"><p class="muted">No low stock items.</p></div>
+    </div>
+  </div>
+
+  <div id="tab-products-panel" style="display:none">
+    <div class="card">
+      <h2>Add / Update Product</h2>
+      <input type="hidden" id="prodId">
+      <input type="text" id="prodName" placeholder="Product Name">
+      <div class="form-row">
+        <input type="number" id="prodCost" placeholder="Cost Price (₹)">
+        <input type="number" id="prodPrice" placeholder="Selling Price (₹)">
+      </div>
+      <input type="number" id="prodStock" placeholder="Stock Quantity">
+      <button class="btn green" onclick="saveProduct()" id="saveProdBtn">Add Product</button>
+      <button class="btn ghost" onclick="clearProductForm()" style="display:none" id="cancelProdBtn">Cancel Edit</button>
+    </div>
+    <div class="card">
+      <h2>All Products</h2>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Name</th><th>Cost</th><th>Price</th><th>Stock</th><th></th></tr></thead>
+        <tbody id="productsBody"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div id="tab-billing-panel" style="display:none">
+    <div class="card">
+      <h2>New Bill</h2>
+      <input type="text" id="billCustomer" placeholder="Customer Name (optional)">
+      <div class="form-row">
+        <select id="billProduct"><option value="">-- Select Product --</option></select>
+        <input type="number" id="billQty" value="1" min="1" placeholder="Qty">
+      </div>
+      <button class="btn" onclick="addToCart()">Add to Bill</button>
+    </div>
+    <div class="card">
+      <h2>Current Bill</h2>
+      <div id="cartItems"></div>
+      <div class="total-bar"><span>Total</span><span id="cartTotal">₹0</span></div>
+      <button class="btn green" onclick="saveBill()">Save Bill ✓</button>
+    </div>
+  </div>
+
+  <div id="tab-sales-panel" style="display:none">
+    <div class="card">
+      <h2>Today's Sales</h2>
+      <div class="stats">
+        <div class="stat"><div class="num" id="todayTotal">₹0</div><div class="lbl">Today Total</div></div>
+        <div class="stat"><div class="num" id="todayBills">0</div><div class="lbl">Bills Today</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Recent Bills</h2>
+      <div id="billsList"><p class="muted">No bills yet.</p></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const SUPABASE_URL = 'https://bjcixocwzwkpddklsahh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqY2l4b2N3endrcGRka2xzYWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDIyNTksImV4cCI6MjEwMjE3ODI1OX0.nX48b5cmNSS3vOjTMBMAvFcggOaGzVDjhli050LLfAA';
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let cart = [];
+let products = [];
+let bills = [];
+let authMode = 'login';
+
+function showAuthMsg(text, ok) {
+  document.getElementById('authMsg').className = ok ? 'msg ok' : 'msg err';
+  document.getElementById('authMsg').innerHTML = text;
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  if (!email || !pass) { showAuthMsg('Please enter email and password.', false); return; }
+  if (authMode === 'login') {
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) { showAuthMsg(error.message, false); return; }
+  } else {
+    const { error } = await supabase.auth.signUp({ email, password: pass });
+    if (error) { showAuthMsg(error.message, false); return; }
+    showAuthMsg('Account created! You can login now.', true);
+    authMode = 'login';
+    document.getElementById('authLink').textContent = 'Create new account';
+    return;
+  }
+}
+
+function toggleAuthMode(e) {
+  e.preventDefault();
+  authMode = authMode === 'login' ? 'signup' : 'login';
+  document.getElementById('authLink').textContent = authMode === 'login' ? 'Create new account' : 'Have an account? Login';
+}
+
+supabase.auth.onAuthStateChange((event, session) => {
+  if (session) { enterApp(); } else { leaveApp(); }
+});
+
+function enterApp() {
+  document.getElementById('auth').style.display = 'none';
+  document.getElementById('appHeader').style.display = 'flex';
+  document.getElementById('appNav').style.display = 'flex';
+  document.getElementById('appMain').style.display = 'block';
+  document.getElementById('userInfo').textContent = '👤 ' + (supabase.auth.getUser() ? 'Owner' : '');
+  loadAll();
+}
+
+function leaveApp() {
+  document.getElementById('auth').style.display = 'flex';
+  document.getElementById('appHeader').style.display = 'none';
+  document.getElementById('appNav').style.display = 'none';
+  document.getElementById('appMain').style.display = 'none';
+}
+
+function showTab(tab) {
+  ['dashboard','products','billing','sales'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+    document.getElementById('tab-' + t + '-panel').style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'billing') refreshProductSelect();
+}
+
+async function loadAll() { await Promise.all([loadProducts(), loadBills()]); renderDashboard(); }
+
+async function loadProducts() {
+  const { data, error } = await supabase.from('products').select('*').order('name');
+  if (error) { console.error(error); return; }
+  products = data || [];
+  renderProducts();
+}
+
+async function loadBills() {
+  const { data, error } = await supabase.from('bills').select('*').order('created_at', { ascending: false });
+  if (error) { console.error(error); return; }
+  bills = data || [];
+  renderBills();
+}
+
+function renderProducts() {
+  const body = document.getElementById('productsBody');
+  if (!products.length) { body.innerHTML = '<tr><td colspan="5" class="muted">No products. Add your first product!</td></tr>'; return; }
+  body.innerHTML = products.map(p => `
+    <tr>
+      <td>${p.name}</td>
+      <td>₹${p.cost_price}</td>
+      <td>₹${p.selling_price}</td>
+      <td class="${p.stock <= 5 ? 'lowstock' : ''}">${p.stock}${p.stock <= 5 ? ' ⚠️' : ''}</td>
+      <td><button class="btn small ghost" onclick="editProduct(${p.id})">Edit</button> <button class="btn small" onclick="deleteProduct(${p.id})">Del</button></td>
+    </tr>`).join('');
+}
+
+function refreshProductSelect() {
+  const sel = document.getElementById('billProduct');
+  sel.innerHTML = '<option value="">-- Select Product --</option>' + products.map(p => `<option value="${p.id}">${p.name} (₹${p.selling_price}, stock ${p.stock})</option>`).join('');
+}
+
+function saveProduct() {
+  const id = document.getElementById('prodId').value;
+  const name = document.getElementById('prodName').value.trim();
+  const cost = parseFloat(document.getElementById('prodCost').value) || 0;
+  const price = parseFloat(document.getElementById('prodPrice').value) || 0;
+  const stock = parseFloat(document.getElementById('prodStock').value) || 0;
+  if (!name) { alert('Product name required.'); return; }
+  if (id) {
+    supabase.from('products').update({ name, cost_price: cost, selling_price: price, stock }).eq('id', id).then(() => { clearProductForm(); loadProducts(); });
+  } else {
+    supabase.from('products').insert({ name, cost_price: cost, selling_price: price, stock }).then(() => { clearProductForm(); loadProducts(); });
+  }
+}
+
+function editProduct(id) {
+  const p = products.find(x => x.id === id); if (!p) return;
+  document.getElementById('prodId').value = p.id;
+  document.getElementById('prodName').value = p.name;
+  document.getElementById('prodCost').value = p.cost_price;
+  document.getElementById('prodPrice').value = p.selling_price;
+  document.getElementById('prodStock').value = p.stock;
+  document.getElementById('saveProdBtn').textContent = 'Update Product';
+  document.getElementById('cancelProdBtn').style.display = 'inline-block';
+  window.scrollTo(0, 0);
+}
+
+function clearProductForm() {
+  document.getElementById('prodId').value = '';
+  ['prodName','prodCost','prodPrice','prodStock'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('saveProdBtn').textContent = 'Add Product';
+  document.getElementById('cancelProdBtn').style.display = 'none';
+}
+
+async function deleteProduct(id) {
+  if (!confirm('Delete this product?')) return;
+  await supabase.from('products').delete().eq('id', id);
+  loadProducts();
+}
+
+function addToCart() {
+  const pid = parseInt(document.getElementById('billProduct').value);
+  const qty = parseFloat(document.getElementById('billQty').value) || 1;
+  const prod = products.find(p => p.id === pid);
+  if (!prod) { alert('Select a product first.'); return; }
+  if (qty > prod.stock) { alert('Only ' + prod.stock + ' in stock!'); return; }
+  const existing = cart.find(c => c.id === pid);
+  if (existing) { existing.qty += qty; } else { cart.push({ id: pid, name: prod.name, price: prod.selling_price, qty }); }
+  renderCart();
+  document.getElementById('billQty').value = 1;
+}
+
+function renderCart() {
+  const el = document.getElementById('cartItems');
+  if (!cart.length) { el.innerHTML = '<p class="muted">Bill is empty.</p>'; }
+  else {
+    el.innerHTML = cart.map((c, i) => `
+      <div class="cart-item"><span>${c.name} × ${c.qty}</span><span>₹${c.price * c.qty} <button class="btn small ghost" onclick="removeCart(${i})">✕</button></span></div>`).join('');
+  }
+  document.getElementById('cartTotal').textContent = '₹' + cart.reduce((s, c) => s + c.price * c.qty, 0);
+}
+
+function removeCart(i) { cart.splice(i, 1); renderCart(); }
+
+async function saveBill() {
+  if (!cart.length) { alert('Bill is empty.'); return; }
+  const total = cart.reduce((s, c) => s + c.price * c.qty, 0);
+  const cust = document.getElementById('billCustomer').value.trim() || 'Walk-in Customer';
+
+  const { data: bill, error } = await supabase.from('bills').insert({ customer_name: cust, total }).select().single();
+  if (error) { alert('Error saving bill: ' + error.message); return; }
+
+  const items = cart.map(c => ({ bill_id: bill.id, product_id: c.id, name: c.name, price: c.price, qty: c.qty, subtotal: c.price * c.qty }));
+  await supabase.from('bill_items').insert(items);
+
+  for (const c of cart) {
+    const prod = products.find(p => p.id === c.id);
+    await supabase.from('products').update({ stock: prod.stock - c.qty }).eq('id', c.id);
+  }
+
+  cart = [];
+  document.getElementById('billCustomer').value = '';
+  renderCart();
+  await Promise.all([loadProducts(), loadBills()]);
+  renderDashboard();
+  alert('Bill saved! Total: ₹' + total + '  (Customer: ' + cust + ')');
+}
+
+function renderBills() {
+  const el = document.getElementById('billsList');
+  if (!bills.length) { el.innerHTML = '<p class="muted">No bills yet.</p>'; return; }
+  el.innerHTML = bills.map(b => `
+    <div class="cart-item">
+      <span>#${b.id} · ${b.customer_name}<br><span class="muted">${new Date(b.created_at).toLocaleString()}</span></span>
+      <span><strong>₹${b.total}</strong></span>
+    </div>`).join('');
+}
+
+function renderDashboard() {
+  document.getElementById('statProducts').textContent = products.length;
+  document.getElementById('statStock').textContent = products.reduce((s, p) => s + p.stock, 0);
+  const today = new Date().toDateString();
+  const todayBills = bills.filter(b => new Date(b.created_at).toDateString() === today);
+  document.getElementById('statToday').textContent = '₹' + todayBills.reduce((s, b) => s + b.total, 0);
+  document.getElementById('statTotalSales').textContent = '₹' + bills.reduce((s, b) => s + b.total, 0);
+  document.getElementById('todayTotal').textContent = '₹' + todayBills.reduce((s, b) => s + b.total, 0);
+  document.getElementById('todayBills').textContent = todayBills.length;
+
+  const low = products.filter(p => p.stock <= 5);
+  document.getElementById('lowStockList').innerHTML = low.length ? low.map(p => `<div class="cart-item"><span>${p.name}</span><span class="lowstock">${p.stock} left ⚠️</span></div>`).join('') : '<p class="muted">No low stock items.</p>';
+}
+</script>
+</body>
+</html>
